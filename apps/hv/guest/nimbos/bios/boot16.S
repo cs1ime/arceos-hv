@@ -27,6 +27,13 @@ entry32:
     mov     fs, ax
     mov     gs, ax
 
+    mov     eax, 0x90909090
+    mov     dx, 0x2233
+    out     dx,eax
+
+    mov     dx, 0x2233
+    in      eax,dx
+
     mov     esp, 0x7000         # temporary stack
     mov     ecx, 0x200000       # kernel entry
     mov     eax, 0x1BADB002     # multiboot magic
