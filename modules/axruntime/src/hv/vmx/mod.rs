@@ -2,6 +2,7 @@ mod device_emu;
 
 use hypercraft::{VmxExitReason, VCpu as HVCpu, HyperResult, HyperError, VmxExitInfo};
 use device_emu::VirtLocalApic;
+use page_table_entry::MappingFlags;
 
 type VCpu = HVCpu<super::HyperCraftHalImpl>;
 
@@ -172,6 +173,27 @@ fn handle_msr_write(vcpu: &mut VCpu) -> HyperResult {
     Ok(())
 }
 
+fn handle_ept_violation(vcpu: &mut VCpu, exit_info: &VmxExitInfo) -> HyperResult {
+    let info = vcpu.nested_page_fault_info()?;
+
+    // info!("[huaji] ept triggered!");
+
+    // info!("[huaji] paddr = {:?}",info);
+
+    let faultaddr = info.fault_guest_paddr;
+
+    if let Some(dev) = device_emu::all_virt_devices().find_mmio_device(faultaddr) {
+        info!("dev triggered!");
+        
+        let write = info.access_flags.contains(MappingFlags::WRITE);
+        let offset = faultaddr - dev.mmio_range().start;
+        dev.access(offset, write);
+    }
+
+    vcpu.advance_rip(exit_info.exit_instruction_length as _)?;
+    Ok(())
+}
+
 pub fn vmexit_handler(vcpu: &mut VCpu) -> HyperResult {
     let exit_info = vcpu.exit_info()?;
     
@@ -181,6 +203,7 @@ pub fn vmexit_handler(vcpu: &mut VCpu) -> HyperResult {
         VmxExitReason::IO_INSTRUCTION => handle_io_instruction(vcpu, &exit_info),
         VmxExitReason::MSR_READ => handle_msr_read(vcpu),
         VmxExitReason::MSR_WRITE => handle_msr_write(vcpu),
+        VmxExitReason::EPT_VIOLATION => handle_ept_violation(vcpu,&exit_info),
         _ => panic!("vmexit reason not supported {:?}:\n{:?}", exit_info.exit_reason, vcpu)
     }
 }
