@@ -31,8 +31,13 @@ impl MmioDevice for VirtBlk {
     fn mmio_range(&self) -> core::ops::Range<usize> {
         self.mmio_start..(self.mmio_start+self.mmio_size)
     }
-    fn access(&self,offset: usize,write: bool) {
-        info!("blk access offset = {:#x} write = {}",offset,write)
+    fn read(&self,offset: usize) -> HyperResult<u32> {
+        info!("blk read offset = {:#x}",offset);
+        Ok(0)
+    }
+    fn write(&self,offset: usize,value: u32) -> HyperResult {
+        info!("blk write offset = {:#x} value = {:#x}",offset,value);
+        Ok(())
     }
 }
 

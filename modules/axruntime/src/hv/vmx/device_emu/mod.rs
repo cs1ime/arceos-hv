@@ -27,7 +27,8 @@ pub struct EmuContext {
 
 pub trait MmioDevice: Send + Sync {
     fn mmio_range(&self) -> core::ops::Range<usize>;
-    fn access(&self,offset: usize,write: bool);
+    fn read(&self,offset: usize) -> HyperResult<u32>;
+    fn write(&self,offset: usize,value: u32) -> HyperResult;
 }
 
 pub struct VirtDeviceList {
