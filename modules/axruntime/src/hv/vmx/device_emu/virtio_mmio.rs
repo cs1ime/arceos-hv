@@ -9,9 +9,12 @@ pub const VIRTIO_MMIO_HOST_FEATURES: usize = 0x010;
 pub const VIRTIO_MMIO_HOST_FEATURES_SEL: usize = 0x014;
 pub const VIRTIO_MMIO_GUEST_FEATURES: usize = 0x020;
 pub const VIRTIO_MMIO_GUEST_FEATURES_SEL: usize = 0x024;
+pub const VIRTIO_MMIO_GUEST_PAGE_SIZE: usize = 0x28;
 pub const VIRTIO_MMIO_QUEUE_SEL: usize = 0x030;
 pub const VIRTIO_MMIO_QUEUE_NUM_MAX: usize = 0x034;
 pub const VIRTIO_MMIO_QUEUE_NUM: usize = 0x038;
+pub const VIRTIO_MMIO_QUEUE_ALIGN: usize = 0x03C;
+pub const VIRTIO_MMIO_QUEUE_PFN: usize = 0x040;
 pub const VIRTIO_MMIO_QUEUE_READY: usize = 0x044;
 pub const VIRTIO_MMIO_QUEUE_NOTIFY: usize = 0x050;
 pub const VIRTIO_MMIO_INTERRUPT_STATUS: usize = 0x060;
@@ -35,18 +38,21 @@ pub enum VirtioDeviceType {
 
 pub struct VirtMmioRegs {
     pub magic: u32,
-    version: u32,
-    device_id: u32,
-    vendor_id: u32,
-    dev_feature: u32,
-    dev_feature_sel: u32,
-    drv_feature: u32,
-    drv_feature_sel: u32,
-    q_sel: u32,
-    q_num_max: u32,
-    irt_stat: u32,
-    irt_ack: u32,
-    dev_stat: u32,
+    pub version: u32,
+    pub device_id: u32,
+    pub vendor_id: u32,
+    pub dev_feature: u32,
+    pub dev_feature_sel: u32,
+    pub drv_feature: u32,
+    pub drv_feature_sel: u32,
+    pub guest_page_size: u32,
+    pub q_sel: u32,
+    pub q_num_max: u32,
+    pub q_align: u32,
+    pub q_pfn: u32,
+    pub irt_stat: u32,
+    pub irt_ack: u32,
+    pub dev_stat: u32,
 }
 
 impl VirtMmioRegs {
@@ -54,15 +60,18 @@ impl VirtMmioRegs {
     {
         Self {
             magic: 0x74726976,
-            version: 0x2,
+            version: 0x1,
             vendor_id: 0x8888,
             device_id: id as u32,
             dev_feature: 0,
             dev_feature_sel: 0,
             drv_feature: 0,
             drv_feature_sel: 0,
+            guest_page_size: 0x1000,
             q_sel: 0,
-            q_num_max: 0,
+            q_num_max: 256,
+            q_align: 0x1000,
+            q_pfn: 0,
             irt_stat: 0,
             irt_ack: 0,
             dev_stat: 0,
