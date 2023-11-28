@@ -190,13 +190,15 @@ fn handle_ept_violation(vcpu: &mut VCpu, exit_info: &VmxExitInfo) -> HyperResult
         let offset = faultaddr - dev.mmio_range().start;
         
         if !write {
-            let rax = dev.read(offset)? as u64;
-            regs.rax &= 0xffff_ffff_0000_0000;
-            regs.rax |= rax;
+            drop(regs);
+            let rax = dev.read(vcpu,offset)? as u64;
+            let regs = vcpu.regs_mut();
+            regs.rax = rax;
         }
         else {
-            let esi = (regs.rsi & 0xffff_ffff) as u32;
-            dev.write(offset, esi)?;
+            let rsi = regs.rsi;
+            drop(regs);
+            dev.write(vcpu,offset, rsi)?;
         }
     }
 

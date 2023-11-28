@@ -30,6 +30,8 @@ pub const VIRTIO_MMIO_CONFIG_GENERATION: usize = 0x0fc;
 pub const VIRTIO_MMIO_CONFIG: usize = 0x100;
 pub const VIRTIO_MMIO_REGS_END: usize = 0x200;
 
+pub const VIRTIO_BLK_CONFIG_CAPACITY: usize = 0;
+
 pub enum VirtioDeviceType {
     None = 0,
     Net = 1,
@@ -48,6 +50,7 @@ pub struct VirtMmioRegs {
     pub guest_page_size: u32,
     pub q_sel: u32,
     pub q_num_max: u32,
+    pub q_num: u32,
     pub q_align: u32,
     pub q_pfn: u32,
     pub irt_stat: u32,
@@ -70,6 +73,7 @@ impl VirtMmioRegs {
             guest_page_size: 0x1000,
             q_sel: 0,
             q_num_max: 256,
+            q_num: 0,
             q_align: 0x1000,
             q_pfn: 0,
             irt_stat: 0,
@@ -79,5 +83,9 @@ impl VirtMmioRegs {
     }
 }
 
+struct VirtBlkInner {
+    regs: VirtMmioRegs,
+    
+}
 
 

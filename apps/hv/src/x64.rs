@@ -197,6 +197,10 @@ fn gpa_as_mut_ptr(guest_paddr: GuestPhysAddr) -> *mut u8 {
     host_vaddr as *mut u8
 }
 
+pub fn gpa_access(gpa: usize,size: usize) -> &'static mut [u8] {
+    unsafe{&mut GUEST_PHYS_MEMORY.0[gpa..(gpa+size)]}
+}
+
 #[cfg(target_arch = "x86_64")]
 fn load_guest_image(hpa: HostPhysAddr, load_gpa: GuestPhysAddr, size: usize) {
     let image_ptr = usize::from(phys_to_virt(hpa.into())) as *const u8;

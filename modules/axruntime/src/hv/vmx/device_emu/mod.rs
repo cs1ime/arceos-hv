@@ -4,12 +4,15 @@ mod uart16550;
 mod myvirtdev;
 mod virtio_blk;
 mod virtio_mmio;
+mod virtio_queue;
 
 extern crate alloc;
 use alloc::{sync::Arc, vec, vec::Vec};
 use hypercraft::HyperResult;
 
 pub use self::lapic::VirtLocalApic;
+
+use super::VCpu;
 
 pub trait PortIoDevice: Send + Sync {
     fn port_range(&self) -> core::ops::Range<u16>;
@@ -27,8 +30,8 @@ pub struct EmuContext {
 
 pub trait MmioDevice: Send + Sync {
     fn mmio_range(&self) -> core::ops::Range<usize>;
-    fn read(&self,offset: usize) -> HyperResult<u32>;
-    fn write(&self,offset: usize,value: u32) -> HyperResult;
+    fn read(&self,vcpu: &mut VCpu,offset: usize) -> HyperResult<u64>;
+    fn write(&self,vcpu: &mut VCpu,offset: usize,value: u64) -> HyperResult;
 }
 
 pub struct VirtDeviceList {

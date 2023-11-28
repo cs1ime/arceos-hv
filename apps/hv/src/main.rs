@@ -5,12 +5,15 @@ extern crate alloc;
 #[macro_use]
 extern crate libax;
 
+use core::cell::RefCell;
+
 #[cfg(target_arch = "riscv64")]
 use dtb_riscv64::MachineMeta;
 #[cfg(target_arch = "aarch64")]
 use dtb_aarch64::MachineMeta;
 #[cfg(target_arch = "aarch64")]
 use aarch64_config::GUEST_KERNEL_BASE_VADDR;
+use libax::sync::Mutex;
 #[cfg(target_arch = "aarch64")]
 use libax::{
     hv::{
@@ -29,6 +32,8 @@ use libax::{
 };
 
 use page_table_entry::MappingFlags;
+
+use crate::x64::gpa_access;
 
 #[cfg(target_arch = "riscv64")]
 mod dtb_riscv64;
@@ -101,6 +106,7 @@ fn main(hart_id: usize) {
         let mut vcpu = p
             .create_vcpu(x64::BIOS_ENTRY, gpm.nest_page_table_root())
             .unwrap();
+        vcpu.gpa_access = Some(gpa_access);
 
         println!("Running guest...");
         vcpu.run();
