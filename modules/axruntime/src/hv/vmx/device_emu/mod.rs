@@ -5,6 +5,7 @@ mod myvirtdev;
 mod virtio_blk;
 mod virtio_mmio;
 mod virtio_queue;
+mod blk_ramfs;
 
 extern crate alloc;
 use alloc::{sync::Arc, vec, vec::Vec};

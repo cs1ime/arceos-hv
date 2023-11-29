@@ -1,9 +1,9 @@
 use hypercraft::{HyperResult, HyperError};
 use spin::Mutex;
-use core::{cell::{RefCell, RefMut}, borrow::BorrowMut, mem::size_of};
-use crate::hv::vmx::{device_emu::{Vec,Arc, virtio_mmio::{VIRTIO_MMIO_STATUS,VIRTIO_MMIO_QUEUE_NOTIFY,VIRTIO_MMIO_VERSION,VIRTIO_MMIO_MAGIC_VALUE, VIRTIO_MMIO_DEVICE_ID, VIRTIO_MMIO_QUEUE_NUM_MAX, VIRTIO_MMIO_GUEST_PAGE_SIZE, VIRTIO_MMIO_QUEUE_PFN, VIRTIO_MMIO_QUEUE_ALIGN, VIRTIO_MMIO_CONFIG, VIRTIO_BLK_CONFIG_CAPACITY, VIRTIO_MMIO_QUEUE_NUM}, virtio_queue::{VringDesc, VringAvail, VringUsed}}, VCpu};
+use core::{cell::{RefCell, RefMut, Ref}, borrow::BorrowMut, mem::size_of};
+use crate::hv::vmx::{device_emu::{Vec,Arc, virtio_mmio::{VIRTIO_MMIO_STATUS,VIRTIO_MMIO_QUEUE_NOTIFY,VIRTIO_MMIO_VERSION,VIRTIO_MMIO_MAGIC_VALUE, VIRTIO_MMIO_DEVICE_ID, VIRTIO_MMIO_QUEUE_NUM_MAX, VIRTIO_MMIO_GUEST_PAGE_SIZE, VIRTIO_MMIO_QUEUE_PFN, VIRTIO_MMIO_QUEUE_ALIGN, VIRTIO_MMIO_CONFIG, VIRTIO_BLK_CONFIG_CAPACITY, VIRTIO_MMIO_QUEUE_NUM}, virtio_queue::{VringDesc, VringAvail, VringUsed, VringUsedElem}}, VCpu};
 
-use super::{MmioDevice, virtio_mmio::{VirtMmioRegs, VirtioDeviceType}, virtio_queue::{Virtq, VirtQueueLayout}};
+use super::{MmioDevice, virtio_mmio::{VirtMmioRegs, VirtioDeviceType}, virtio_queue::{Virtq, VirtQueueLayout}, blk_ramfs::RamfsDev};
 
 pub const VIRTIO_BLK_T_IN: usize = 0;
 pub const VIRTIO_BLK_T_OUT: usize = 1;
@@ -66,11 +66,14 @@ pub struct BlkIov {
     pub len: u32,
 }
 
-pub trait BlkDev<'a> {
+
+pub trait BlkDev : Send+Sync {
     fn capacity(&self) -> usize;
-    fn read(&self,sector: usize, buf: &'a mut [u8]);
-    fn write(&self,sector: usize, buf: &'a [u8]);
+    fn read(&self,sector: usize, buf: &mut[u8]);
+    fn write(&self,sector: usize, buf: &[u8]);
 }
+
+
 
 
 pub struct VirtBlk {
@@ -92,7 +95,7 @@ impl VirtBlk {
 
 struct VirtBlkInner {
     regs: VirtMmioRegs,
-    capacity: u32,
+    dev: Arc<dyn BlkDev>,
     vq: Virtq,
 }
 
@@ -101,7 +104,7 @@ impl VirtBlkInner {
     fn new() -> Self{
         Self {
             regs: VirtMmioRegs::new(VirtioDeviceType::Block),
-            capacity: 100,
+            dev: Arc::new(RamfsDev::new(0x10_0000)),
             vq: Virtq::default(),
         }
     }
@@ -125,7 +128,7 @@ impl MmioDevice for VirtBlk {
             if offset >= VIRTIO_MMIO_CONFIG {
                 let offset = offset - VIRTIO_MMIO_CONFIG;
                 match offset {
-                    VIRTIO_BLK_CONFIG_CAPACITY => Ok(inner.capacity as u64),
+                    VIRTIO_BLK_CONFIG_CAPACITY => Ok(inner.dev.capacity() as u64),
                     _ => Ok(0),
                 }
             }
@@ -165,7 +168,6 @@ impl MmioDevice for VirtBlk {
     }
 }
 
-
 impl VirtBlkInner {
     fn notify(&self,vcpu: &mut VCpu) {
         if let Some(gpa_access) = vcpu.gpa_access {
@@ -194,9 +196,10 @@ impl VirtBlkInner {
             self.vq.set_avail(avail);
             self.vq.set_used(used);
 
-            let mut vreq = BlkReqNode::default();
+            
 
             while let Some(new_desc_idx) = self.vq.pop_avail_idx() {
+                let mut vreq = BlkReqNode::default();
                 let mut desc_idx = new_desc_idx;
                 if let Some(new_desc) = self.vq.desc_by_index(new_desc_idx) {
                     let mut desc = new_desc;
@@ -242,15 +245,32 @@ impl VirtBlkInner {
                         break;
                     }
                 }
-            }
-            info!("{:?}",vreq);
 
-            if vreq.req_type == BlkReqType::In as u32 {
-                
+                info!("{:?}",vreq);
+
+                if vreq.req_type == BlkReqType::In as u32 {
+                    for iov in vreq.iov {
+                        let buf = gpa_access(iov.data_bg,iov.len as usize);
+                        self.dev.read(vreq.sector, buf);
+                        info!("buf = {:?}",buf);
+                    }
+                }
+                else if vreq.req_type == BlkReqType::Out as u32 {
+                    for iov in vreq.iov {
+                        let buf = gpa_access(iov.data_bg,iov.len as usize);
+                        self.dev.write(vreq.sector, buf);
+                        info!("buf = {:?}",buf);
+                    }
+                }
+
+                self.vq.push_used_item(VringUsedElem { id: 0, len: 0 });
             }
+            
+
         }
         
         
 
     }
 }
+

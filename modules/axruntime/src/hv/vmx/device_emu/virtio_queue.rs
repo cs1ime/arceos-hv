@@ -91,7 +91,7 @@ impl VringAvail {
 
 #[repr(C)]
 #[derive(Debug,Copy, Clone)]
-struct VringUsedElem {
+pub struct VringUsedElem {
     pub id: u32,
     pub len: u32,
 }
@@ -127,6 +127,28 @@ impl Virtq {
     pub fn set_used(&self,buf: &'static mut VringUsed) {
         let mut inner = self.inner.lock();
         inner.used = Some(buf);
+    }
+    pub fn get_used_idx(&self) -> Option<usize> {
+        let mut inner = self.inner.lock();
+        if let Some(used) = &inner.used {
+            Some(used.idx as usize)
+        }
+        else {
+            None
+        }
+    }
+    pub fn push_used_item(&self,item: VringUsedElem) -> bool {
+        let mut inner = self.inner.lock();
+        let num = inner.num;
+        if let Some(used) = &mut inner.used {
+            let used_idx = used.idx;
+            let used_item = &mut used.ring[used_idx as usize % num];
+            used.idx = used.idx.wrapping_add(1);
+            true
+        }
+        else {
+            false
+        }
     }
 
     pub fn pop_avail_idx(&self) -> Option<usize> {
@@ -195,7 +217,7 @@ impl VirtqInner {
         VirtqInner {
             ready: 0,
             vq_index: 0,
-            num: 0,
+            num: 256,
             desc_table: None,
             avail: None,
             used: None,
