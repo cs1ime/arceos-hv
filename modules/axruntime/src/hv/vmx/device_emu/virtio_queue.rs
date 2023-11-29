@@ -7,6 +7,10 @@ fn queue_align_up(size: usize,q_align: u32) -> usize {
     (size + q_align as usize) & !(q_align as usize - 1)
 }
 
+pub const VIRTQ_READY: usize = 1;
+pub const VIRTQ_DESC_F_NEXT: u16 = 1;
+pub const VIRTQ_DESC_F_WRITE: u16 = 2;
+
 pub struct VirtQueueLayout {
     avail_offset: usize,
     used_offset: usize,
@@ -53,12 +57,36 @@ pub struct VringDesc {
     next: u16,
 }
 
+impl VringDesc {
+    pub fn desc_has_next(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_NEXT != 0
+    }
+    pub fn desc_next_idx(&self) -> u16 {
+        self.next
+    }
+    pub fn desc_addr(&self) -> usize {
+        self.addr
+    }
+    pub fn desc_len(&self) -> u32 {
+        self.len
+    }
+    pub fn desc_is_writable(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_WRITE as u16 != 0
+    }
+}
+
 #[repr(C)]
 #[derive(Debug,Copy, Clone)]
 pub struct VringAvail {
     flags: u16,
     idx: u16,
     ring: [u16; 256],
+}
+
+impl VringAvail {
+    pub fn get_ring_value(&self,index: usize) -> u16 {
+        self.ring[index]
+    }
 }
 
 #[repr(C)]
@@ -78,7 +106,7 @@ pub struct VringUsed {
 
 
 pub struct Virtq{
-    inner: Arc<Mutex<VirtqInner<'static>>>,
+    inner: Arc<Mutex<VirtqInner>>,
 }
 
 impl Virtq {
@@ -100,15 +128,59 @@ impl Virtq {
         let mut inner = self.inner.lock();
         inner.used = Some(buf);
     }
+
+    pub fn pop_avail_idx(&self) -> Option<usize> {
+        let mut inner: spin::MutexGuard<'_, VirtqInner> = self.inner.lock();
+        if let Some(avail) = &inner.avail {
+            info!("avail.idx = {}",avail.idx);
+            info!("inner.last_avail_idx = {}",inner.last_avail_idx);
+            if avail.idx == inner.last_avail_idx {
+                return None;
+            }
+            else {
+                if let Some(desc_table) = &inner.desc_table {
+                    let avail_index = avail.get_ring_value(inner.last_avail_idx as usize) as usize;
+                    inner.last_avail_idx=inner.last_avail_idx.wrapping_add(1);
+                    Some(avail_index)
+                }
+                else {
+                    None
+                }
+            }
+        }
+        else {
+            None
+        }
+        
+    }
+
+    pub fn desc_by_index(&self,idx: usize) -> Option<&'static mut VringDesc>  {
+        let mut inner: spin::MutexGuard<'_, VirtqInner> = self.inner.lock();
+        if let Some(desc_table) = &mut inner.desc_table {
+            let result = &mut desc_table[idx];
+            let result_static: &'static mut VringDesc = unsafe {
+                // Since we're returning a reference with a 'static lifetime,
+                // you need to ensure that the referenced data lives for the 'static lifetime.
+                // Be careful when using unsafe code.
+                core::mem::transmute(result)
+            };
+            Some(result_static)
+        }
+        else {
+            None
+        }
+    }
+
+
 }
 
-struct VirtqInner<'a> {
+struct VirtqInner {
     ready: usize,
     vq_index: usize,
     num: usize,
-    desc_table: Option<&'a mut [VringDesc]>,
-    avail: Option<&'a mut VringAvail>,
-    used: Option<&'a mut VringUsed>,
+    desc_table: Option<&'static mut [VringDesc]>,
+    avail: Option<&'static mut VringAvail>,
+    used: Option<&'static mut VringUsed>,
     last_avail_idx: u16,
     last_used_idx: u16,
     used_flags: u16,
@@ -118,7 +190,7 @@ struct VirtqInner<'a> {
     used_addr: usize,
 }
 
-impl VirtqInner<'_> {
+impl VirtqInner {
     pub fn default() -> Self {
         VirtqInner {
             ready: 0,

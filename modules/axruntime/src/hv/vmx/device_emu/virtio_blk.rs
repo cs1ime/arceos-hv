@@ -1,9 +1,77 @@
 use hypercraft::{HyperResult, HyperError};
 use spin::Mutex;
 use core::{cell::{RefCell, RefMut}, borrow::BorrowMut, mem::size_of};
-use crate::hv::vmx::{device_emu::{Arc, virtio_mmio::{VIRTIO_MMIO_STATUS,VIRTIO_MMIO_QUEUE_NOTIFY,VIRTIO_MMIO_VERSION,VIRTIO_MMIO_MAGIC_VALUE, VIRTIO_MMIO_DEVICE_ID, VIRTIO_MMIO_QUEUE_NUM_MAX, VIRTIO_MMIO_GUEST_PAGE_SIZE, VIRTIO_MMIO_QUEUE_PFN, VIRTIO_MMIO_QUEUE_ALIGN, VIRTIO_MMIO_CONFIG, VIRTIO_BLK_CONFIG_CAPACITY, VIRTIO_MMIO_QUEUE_NUM}, virtio_queue::{VringDesc, VringAvail, VringUsed}}, VCpu};
+use crate::hv::vmx::{device_emu::{Vec,Arc, virtio_mmio::{VIRTIO_MMIO_STATUS,VIRTIO_MMIO_QUEUE_NOTIFY,VIRTIO_MMIO_VERSION,VIRTIO_MMIO_MAGIC_VALUE, VIRTIO_MMIO_DEVICE_ID, VIRTIO_MMIO_QUEUE_NUM_MAX, VIRTIO_MMIO_GUEST_PAGE_SIZE, VIRTIO_MMIO_QUEUE_PFN, VIRTIO_MMIO_QUEUE_ALIGN, VIRTIO_MMIO_CONFIG, VIRTIO_BLK_CONFIG_CAPACITY, VIRTIO_MMIO_QUEUE_NUM}, virtio_queue::{VringDesc, VringAvail, VringUsed}}, VCpu};
 
 use super::{MmioDevice, virtio_mmio::{VirtMmioRegs, VirtioDeviceType}, virtio_queue::{Virtq, VirtQueueLayout}};
+
+pub const VIRTIO_BLK_T_IN: usize = 0;
+pub const VIRTIO_BLK_T_OUT: usize = 1;
+pub const VIRTIO_BLK_T_FLUSH: usize = 4;
+pub const VIRTIO_BLK_T_GET_ID: usize = 8;
+
+/* BLOCK REQUEST STATUS*/
+pub const VIRTIO_BLK_S_OK: usize = 0;
+// pub const VIRTIO_BLK_S_IOERR: usize = 1;
+pub const VIRTIO_BLK_S_UNSUPP: usize = 2;
+
+#[repr(C)]
+#[derive(Debug)]
+struct BlkReq {
+    type_: BlkReqType,
+    reserved: u32,
+    sector: u64,
+}
+
+#[repr(u32)]
+#[derive(Debug,Clone, Copy)]
+enum BlkReqType {
+    In = 0,
+    Out = 1,
+    Flush = 4,
+    Discard = 11,
+    WriteZeroes = 13,
+}
+
+#[derive(Debug)]
+pub struct BlkReqNode {
+    req_type: u32,
+    reserved: u32,
+    sector: usize,
+    desc_chain_head_idx: usize,
+    iov: Vec<BlkIov>,
+    // sum up byte for req
+    iov_sum_up: usize,
+    // total byte for current req
+    iov_total: usize,
+}
+
+impl BlkReqNode {
+    pub fn default() -> Self {
+        BlkReqNode {
+            req_type: 0,
+            reserved: 0,
+            sector: 0,
+            desc_chain_head_idx: 0,
+            iov: Vec::new(),
+            iov_sum_up: 0,
+            iov_total: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BlkIov {
+    pub data_bg: usize,
+    pub len: u32,
+}
+
+pub trait BlkDev<'a> {
+    fn capacity(&self) -> usize;
+    fn read(&self,sector: usize, buf: &'a mut [u8]);
+    fn write(&self,sector: usize, buf: &'a [u8]);
+}
+
 
 pub struct VirtBlk {
     mmio_start: usize,
@@ -126,7 +194,60 @@ impl VirtBlkInner {
             self.vq.set_avail(avail);
             self.vq.set_used(used);
 
-            
+            let mut vreq = BlkReqNode::default();
+
+            while let Some(new_desc_idx) = self.vq.pop_avail_idx() {
+                let mut desc_idx = new_desc_idx;
+                if let Some(new_desc) = self.vq.desc_by_index(new_desc_idx) {
+                    let mut desc = new_desc;
+
+                    info!("addr = {:?}",desc);
+                    let mut head = true;
+                    loop {
+                        if desc.desc_has_next() {
+                            if head {
+
+                                if (desc.desc_len() as usize) < core::mem::size_of::<BlkReq>() {
+                                    panic!("desc.desc_len() < core::mem::size_of::<BlkReq>()");
+                                }
+                                let req = gpa_access(desc.desc_addr(),desc.desc_len() as usize) as *mut [u8];
+                                let req = unsafe{&mut*(req as *mut BlkReq)};
+                                
+                                info!("req = {:?}",req);
+
+                                vreq.req_type = req.type_ as u32;
+                                vreq.sector = req.sector as usize;
+                                vreq.desc_chain_head_idx = desc_idx;
+                                head = false;
+                            }
+                            else {
+                                info!("content = {:?}",desc);
+                                vreq.iov.push(BlkIov{data_bg: desc.desc_addr(),len: desc.desc_len()});
+                                vreq.iov_sum_up+=desc.desc_len() as usize;
+                            }
+                            
+                            desc_idx = desc.desc_next_idx() as usize;
+                            if let Some(new_desc) = self.vq.desc_by_index(desc_idx) {
+                                desc = new_desc;
+                                continue;
+                            }
+                        }
+                        else {
+                            /*state handler*/
+                            if desc.desc_is_writable() {
+                                let vstatus = gpa_access(desc.desc_addr(),desc.desc_len() as usize);
+                                vstatus[0] = VIRTIO_BLK_S_OK as u8;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            info!("{:?}",vreq);
+
+            if vreq.req_type == BlkReqType::In as u32 {
+                
+            }
         }
         
         
