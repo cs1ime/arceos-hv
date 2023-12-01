@@ -145,11 +145,11 @@ impl MmioDevice for VirtBlk {
 
             
         };
-        info!("blk read offset = {:#x} r = {:?}",offset,r);
+        // info!("blk read offset = {:#x} r = {:?}",offset,r);
         r
     }
     fn write(&self,vcpu: &mut VCpu,offset: usize,value: u64) -> HyperResult {
-        info!("blk write offset = {:#x} value = {:#x}",offset,value);
+        // info!("blk write offset = {:#x} value = {:#x}",offset,value);
 
         let mut inner = self.inner.lock();
 
@@ -173,8 +173,8 @@ impl VirtBlkInner {
         if let Some(gpa_access) = vcpu.gpa_access {
             let layout = VirtQueueLayout::new(self.regs.q_num as u16,self.regs.q_align);
             let q_physaddr = self.regs.q_pfn * 0x1000;
-            info!("self.regs.q_num = {}",self.regs.q_num);
-            info!("avail_offset = {} , get_used_offset = {} , size = {}",layout.get_avail_offset(),layout.get_used_offset(),layout.get_size());
+            // info!("self.regs.q_num = {}",self.regs.q_num);
+            // info!("avail_offset = {} , get_used_offset = {} , size = {}",layout.get_avail_offset(),layout.get_used_offset(),layout.get_size());
             
             let desc_table = 
                 unsafe {
